@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SafeChat Room Test</title>
+</head>
+<body>
+  <h2>SafeChat Room Test</h2>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    const CONVERSATION_ID = "698b8c407dcc6f67d65ca0ba";
+    const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5OGI4YzQwN2RjYzZmNjdkNjVjYTBiYSIsImlhdCI6MTc3MDg2Njk3MywiZXhwIjoxNzcxNDcxNzczfQ.BAqGKv4k8CKrx04VK7tmxHKsX9ccjh_AK22AKnun-S0";
+
+    const socket = io("http://localhost:5000", {
+      auth: { token: TOKEN }
+    });
+
+    socket.on("connect", () => {
+      console.log("✅ Socket connected");
+
+      // 🏠 join room
+      socket.emit("joinConversation", CONVERSATION_ID);
+
+      // 💬 send message after join
+      setTimeout(() => {
+        socket.emit("sendMessage", {
+          conversationId: CONVERSATION_ID,
+          text: "Room-based message 🔥"
+        });
+      }, 1000);
+    });
+
+    socket.on("receiveMessage", (msg) => {
+      console.log("📩 Room message:", msg);
+    });
+
+    socket.on("connect_error", (err) => {
+      console.error("❌ Socket error:", err.message);
+    });
+  </script>
+</body>
+</html>
