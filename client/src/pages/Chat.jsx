@@ -1,162 +1,304 @@
 import { useEffect, useState } from "react";
+import axios from "axios";
 import { io } from "socket.io-client";
 
 const Chat = () => {
-  const [socket, setSocket] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [text, setText] = useState("");
 
   const token = localStorage.getItem("token");
 
-  // ⚠️ YAHAN APNA REAL CONVERSATION ID DALO
-  const conversationId = "698d3e75d53d64bafef7ad86";
+  const [users, setUsers] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [conversationId, setConversationId] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [text, setText] = useState("");
+  const [socket, setSocket] = useState(null);
 
-  // 🔓 Decode userId from JWT
-  const getUserIdFromToken = () => {
-    if (!token) return null;
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.id;
+  const isMobile = window.innerWidth < 768;
+
+  // ✅ Decode user
+  const getMyId = () => {
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      return payload.id;
+    } catch {
+      return null;
+    }
   };
 
-  const myUserId = getUserIdFromToken();
+  const myId = getMyId();
 
+  // ✅ GET USERS
   useEffect(() => {
-    if (!token) {
-      console.log("❌ No token found");
-      return;
-    }
+    const fetchUsers = async () => {
+      const { data } = await axios.get("/api/chat/users", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-    const newSocket = io("http://localhost:5000", {
-      auth: { token },
-    });
+      setUsers(data);
+    };
+
+    fetchUsers();
+  }, []);
+
+  // ✅ START CHAT
+  const startChat = async (user) => {
+
+    setSelectedUser(user);
+
+    const { data } = await axios.post(
+      "/api/chat/conversation",
+      { receiverId: user._id },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    setConversationId(data._id);
+
+    const res = await axios.get(
+      `/api/chat/messages/${data._id}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    setMessages(res.data);
+  };
+
+  // ✅ SOCKET
+  useEffect(() => {
+
+    if (!conversationId) return;
+
+    const newSocket = io();
 
     setSocket(newSocket);
 
-    newSocket.on("connect", () => {
-      console.log("🟢 Connected:", newSocket.id);
-
-      // Join conversation room
-      newSocket.emit("joinConversation", conversationId);
-    });
+    newSocket.emit("joinRoom", conversationId);
 
     newSocket.on("receiveMessage", (msg) => {
-      console.log("📩 Message received:", msg);
       setMessages((prev) => [...prev, msg]);
     });
 
-    newSocket.on("connect_error", (err) => {
-      console.log("❌ Socket error:", err.message);
-    });
-
     return () => newSocket.disconnect();
-  }, [token]);
 
+  }, [conversationId]);
+
+  // ✅ SEND MESSAGE
   const sendMessage = () => {
-    if (!socket || !text.trim()) return;
+
+    if (!text.trim()) return;
 
     socket.emit("sendMessage", {
       conversationId,
       text,
     });
 
+    setMessages((prev) => [
+      ...prev,
+      {
+        text,
+        sender: myId,
+      },
+    ]);
+
     setText("");
   };
 
+  // ✅ LOGOUT
+  const logout = () => {
+    localStorage.removeItem("token");
+    window.location.href = "/login";
+  };
+
   return (
-  <div
-    style={{
-      height: "100vh",
-      background: "#0f172a",
-      color: "white",
-      display: "flex",
-      flexDirection: "column",
-    }}
-  >
-    {/* Header */}
-    <div
-      style={{
-        padding: "15px",
-        borderBottom: "1px solid #1e293b",
-        fontWeight: "bold",
-        fontSize: "18px",
-      }}
-    >
-      SafeChat 💬
-    </div>
+    <div style={styles.container(isMobile)}>
 
-    {/* Messages */}
-    <div
-      style={{
-        flex: 1,
-        overflowY: "auto",
-        padding: "20px",
-        display: "flex",
-        flexDirection: "column",
-        gap: "12px",
-      }}
-    >
-      {messages.map((msg, index) => {
-        const isMe = msg.sender === myUserId;
+      {/* SIDEBAR */}
+      <div style={styles.sidebar(isMobile)}>
 
-        return (
+        <h2>SafeChat 💬</h2>
+
+        {users.map((user) => (
           <div
-            key={index}
-            style={{
-              alignSelf: isMe ? "flex-end" : "flex-start",
-              backgroundColor: isMe ? "#22c55e" : "#334155",
-              padding: "12px 16px",
-              borderRadius: "16px",
-              maxWidth: "70%",
-              fontSize: "15px",
-            }}
+            key={user._id}
+            onClick={() => startChat(user)}
+            style={styles.user}
           >
-            {msg.text}
+            {user.name}
           </div>
-        );
-      })}
-    </div>
+        ))}
 
-  {/* Input Section */}
-<div
-  style={{
+        <button onClick={logout} style={styles.logout}>
+          Logout
+        </button>
+
+      </div>
+
+      {/* CHAT AREA */}
+      <div style={styles.chatArea}>
+
+        {selectedUser ? (
+          <>
+            <div style={styles.header}>
+              {selectedUser.name}
+            </div>
+
+            <div style={styles.messages}>
+
+              {messages.map((msg, i) => {
+
+                const isMe =
+                  msg.sender?.toString() === myId;
+
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      ...styles.message,
+                      alignSelf: isMe
+                        ? "flex-end"
+                        : "flex-start",
+                      background: isMe
+                        ? "#22c55e"
+                        : "#1e293b",
+                    }}
+                  >
+                    {msg.text}
+                  </div>
+                );
+              })}
+
+            </div>
+
+            <div style={styles.inputArea}>
+
+              <input
+                value={text}
+                onChange={(e) =>
+                  setText(e.target.value)
+                }
+                placeholder="Type message..."
+                style={styles.input}
+              />
+
+              <button
+                onClick={sendMessage}
+                style={styles.send}
+              >
+                Send
+              </button>
+
+            </div>
+          </>
+        ) : (
+          <div style={styles.select}>
+            Select user to chat
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+};
+
+const styles = {
+
+  container: (mobile) => ({
+    display: "flex",
+    flexDirection: mobile ? "column" : "row",
+    height: "100vh",
+    background: "#020617",
+    color: "white",
+  }),
+
+  sidebar: (mobile) => ({
+    width: mobile ? "100%" : "280px",
+    background: "#020617",
+    padding: "20px",
+    borderRight: "1px solid #1e293b",
+  }),
+
+  user: {
+    padding: "12px",
+    marginTop: "10px",
+    background: "#1e293b",
+    borderRadius: "8px",
+    cursor: "pointer",
+  },
+
+  logout: {
+    marginTop: "20px",
+    background: "red",
+    border: "none",
+    padding: "10px",
+    width: "100%",
+    color: "white",
+    cursor: "pointer",
+    borderRadius: "6px",
+  },
+
+  chatArea: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+  },
+
+  header: {
     padding: "15px",
-    borderTop: "1px solid #1e293b",
+    background: "#020617",
+    borderBottom: "1px solid #1e293b",
+  },
+
+  messages: {
+    flex: 1,
+    overflowY: "auto",
+    padding: "20px",
     display: "flex",
     flexDirection: "column",
     gap: "10px",
-  }}
->
-  <input
-    value={text}
-    onChange={(e) => setText(e.target.value)}
-    placeholder="Type message..."
-    style={{
-      width: "100%",
-      padding: "16px",
-      borderRadius: "12px",
-      border: "none",
-      fontSize: "16px",
-    }}
-  />
+  },
 
-  <button
-    onClick={sendMessage}
-    style={{
-      width: "100%",
-      padding: "16px",
-      background: "#22c55e",
-      border: "none",
-      borderRadius: "12px",
-      cursor: "pointer",
-      fontWeight: "bold",
-      fontSize: "16px",
-    }}
-  >
-    Send
-  </button>
-</div>
-  </div>
-);
+  message: {
+    padding: "12px 16px",
+    borderRadius: "12px",
+    maxWidth: "70%",
+  },
+
+  inputArea: {
+    display: "flex",
+    padding: "15px",
+    background: "#020617",
+  },
+
+  input: {
+    flex: 1,
+    padding: "14px",
+    borderRadius: "8px",
+    border: "none",
+    fontSize: "16px",
+  },
+
+  send: {
+    marginLeft: "10px",
+    padding: "14px 20px",
+    background: "#22c55e",
+    border: "none",
+    cursor: "pointer",
+    borderRadius: "8px",
+  },
+
+  select: {
+    margin: "auto",
+    fontSize: "20px",
+    opacity: 0.7,
+  },
 };
 
 export default Chat;

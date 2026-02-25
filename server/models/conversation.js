@@ -2,18 +2,23 @@ import mongoose from "mongoose";
 
 const conversationSchema = new mongoose.Schema(
   {
-    members: [
+    participants: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
-        required: true
-      }
+      },
     ],
-    lastMessage: {
-      type: String
-    }
+
+    // ✅ UNIQUE CHAT KEY
+    chatKey: {
+      type: String,
+      unique: true,
+    },
   },
   { timestamps: true }
 );
 
-export default mongoose.model("Conversation", conversationSchema);
+export default mongoose.model(
+  "Conversation",
+  conversationSchema
+);

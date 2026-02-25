@@ -1,63 +1,117 @@
 import express from "express";
-import authMiddleware from "../middleware/authMiddleware.js";
-import Conversation from "../models/Conversation.js";
+import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
+
+import User from "../models/User.js";
 import Message from "../models/Message.js";
+import Conversation from "../models/Conversation.js";
 
 const router = express.Router();
 
-// STEP 4️⃣ Start or get conversation
-router.post("/conversation", authMiddleware, async (req, res) => {
-  try {
-    const { userId } = req.body;
 
-    let conversation = await Conversation.findOne({
-      members: { $all: [req.user._id, userId] }
-    });
+// 🔐 Protect Middleware
+const protect = async (req, res, next) => {
+  try {
+
+    const token = req.headers.authorization?.split(" ")[1];
+
+    if (!token)
+      return res.status(401).json({ message: "No token" });
+
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET
+    );
+
+    req.user = await User.findById(decoded.id);
+
+    next();
+
+  } catch (err) {
+    res.status(401).json({ message: "Not authorized" });
+  }
+};
+
+
+// ✅ GET USERS
+router.get("/users", protect, async (req, res) => {
+
+  const users = await User.find({
+    _id: { $ne: req.user._id },
+  }).select("-password");
+
+  res.json(users);
+
+});
+
+
+// ✅ CREATE OR GET CONVERSATION (FINAL FIX)
+router.post("/conversation", protect, async (req, res) => {
+
+  try {
+
+    const senderId = req.user._id.toString();
+    const receiverId = req.body.receiverId;
+
+    // ✅ SORT IDS (IMPORTANT)
+    const chatKey = [senderId, receiverId]
+      .sort()
+      .join("_");
+
+    // ✅ FIND BY UNIQUE KEY
+    let conversation =
+      await Conversation.findOne({
+        chatKey,
+      });
 
     if (!conversation) {
-      conversation = await Conversation.create({
-        members: [req.user._id, userId]
-      });
+
+      conversation =
+        await Conversation.create({
+          participants: [
+            senderId,
+            receiverId,
+          ],
+          chatKey,
+        });
+
+      console.log("✅ Created New Chat");
+
+    } else {
+
+      console.log("✅ Existing Chat Used");
+
     }
 
     res.json(conversation);
+
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
 
-// STEP 5️⃣ Send message
-router.post("/message", authMiddleware, async (req, res) => {
-  try {
-    const { conversationId, text } = req.body;
+    console.log(error);
 
-    const message = await Message.create({
-      conversationId,
-      sender: req.user._id,
-      text
+    res.status(500).json({
+      message: error.message,
     });
 
-    await Conversation.findByIdAndUpdate(conversationId, {
-      lastMessage: text
-    });
-
-    res.json(message);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
   }
+
 });
 
-// STEP 6️⃣ Get messages
-router.get("/message/:conversationId", authMiddleware, async (req, res) => {
-  try {
-    const messages = await Message.find({
-      conversationId: req.params.conversationId
-    }).populate("sender", "name");
+// ✅ GET MESSAGES
+router.get(
+  "/messages/:conversationId",
+  protect,
+  async (req, res) => {
+
+    const messages =
+      await Message.find({
+        conversationId:
+          req.params.conversationId,
+      }).sort({ createdAt: 1 });
 
     res.json(messages);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+
   }
-});
+);
 
 export default router;

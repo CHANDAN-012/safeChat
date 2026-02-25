@@ -2,21 +2,16 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
-import authMiddleware from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-/* ================= REGISTER ================= */
+// REGISTER
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password, status } = req.body;
+    const { name, email, password } = req.body;
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: "All fields are required" });
-    }
-
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
+    const userExists = await User.findOne({ email });
+    if (userExists) {
       return res.status(400).json({ message: "User already exists" });
     }
 
@@ -26,32 +21,29 @@ router.post("/register", async (req, res) => {
       name,
       email,
       password: hashedPassword,
-      status
     });
+
+    const token = jwt.sign(
+      { id: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
     res.status(201).json({
-      message: "User registered successfully",
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        status: user.status
-      }
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      token,
     });
-
-  } catch (error) {
-    res.status(500).json({ message: "Server error" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
-/* ================= LOGIN ================= */
+// LOGIN
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ message: "All fields are required" });
-    }
 
     const user = await User.findOne({ email });
     if (!user) {
@@ -69,31 +61,15 @@ router.post("/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    user.lastSeen = new Date();
-    await user.save();
-
     res.json({
-      message: "Login successful",
+      _id: user._id,
+      name: user.name,
+      email: user.email,
       token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        status: user.status,
-        lastSeen: user.lastSeen
-      }
     });
-
-  } catch (error) {
-    res.status(500).json({ message: "Server error" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-});
-// PROTECTED ROUTE (TEST)
-router.get("/me", authMiddleware, (req, res) => {
-  res.json({
-    message: "Protected route accessed",
-    user: req.user
-  });
 });
 
 export default router;
